@@ -1,0 +1,7 @@
+body{font-family:Arial,sans-serif;text-align:center;background:#1b1b1b;color:white;margin:20px}
+#board{width:500px;height:500px;margin:20px auto;display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(8,1fr);gap:2px}
+.cell{background:#1e7d32;cursor:pointer;display:flex;justify-content:center;align-items:center}
+.disc{width:80%;height:80%;border-radius:50%}
+.black{background:black}.white{background:white}
+#scores{display:flex;justify-content:center;gap:30px;margin-top:10px}
+button{padding:10px 16px;margin-top:15px}
