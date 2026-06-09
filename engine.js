@@ -24,21 +24,23 @@ function initBoard() {
     render();
 }
 
-// -------------------- HELPERS --------------------
-
-function inBounds(r, c) {
-    return r >= 0 && r < SIZE && c >= 0 && c < SIZE;
-}
+// -------------------- UI --------------------
 
 function setStatus(msg) {
     document.getElementById('status').textContent = msg;
+}
+
+// -------------------- CORE HELPERS --------------------
+
+function inBounds(r, c) {
+    return r >= 0 && r < SIZE && c >= 0 && c < SIZE;
 }
 
 function canPlay(b, p) {
     return legalMoves(b, p).length > 0;
 }
 
-// -------------------- MOVE LOGIC --------------------
+// -------------------- MOVE ENGINE --------------------
 
 function getFlips(b, r, c, p) {
     if (b[r][c] !== EMPTY) return [];
@@ -92,28 +94,92 @@ function makeMove(b, r, c, p) {
     return nb;
 }
 
-// -------------------- AI --------------------
+// -------------------- ADVANCED ANTI-AI SYSTEM --------------------
 
-function evaluate(b) {
-    let score =
-        (legalMoves(b, WHITE).length - legalMoves(b, BLACK).length) * 15;
+// 🪤 trap detection
+function isTrapMove(b, r, c, p) {
+    const nb = makeMove(b, r, c, p);
+    if (!nb) return true;
 
-    for (const [r, c] of [[0,0],[0,7],[7,0],[7,7]]) {
-        if (b[r][c] === WHITE) score += 40;
-        if (b[r][c] === BLACK) score -= 40;
-    }
+    const oppMoves = legalMoves(nb, -p).length;
+    const myMoves = legalMoves(nb, p).length;
 
-    let discs = 0;
+    if (oppMoves === 0) return true;
+    if (myMoves > oppMoves * 3) return true;
+
+    return false;
+}
+
+// 🌪 entropy scoring
+function moveEntropy(b, r, c, p) {
+    const nb = makeMove(b, r, c, p);
+    if (!nb) return 0;
+
+    const oppMoves = legalMoves(nb, -p).length;
+    const myMoves = legalMoves(nb, p).length;
+
+    return Math.abs(oppMoves - myMoves);
+}
+
+// 📊 adaptive difficulty
+function adaptiveDepth(b) {
+    let total = 0;
+
     for (let r = 0; r < 8; r++) {
         for (let c = 0; c < 8; c++) {
-            discs += b[r][c];
+            if (b[r][c] !== EMPTY) total++;
         }
     }
 
-    score -= discs * 2;
+    if (total < 20) return 3;
+    if (total < 45) return 4;
+    return 5;
+}
+
+// 🎭 intentional blunders
+function shouldBlunder() {
+    return Math.random() < 0.18;
+}
+
+// -------------------- EVALUATION (ANTI-REVERSED) --------------------
+
+function evaluate(b) {
+    const my = WHITE, opp = BLACK;
+
+    let score = 0;
+
+    const myMoves = legalMoves(b, my).length;
+    const oppMoves = legalMoves(b, opp).length;
+
+    score += myMoves * -30;
+    score += oppMoves * 40;
+
+    let myDiscs = 0, oppDiscs = 0;
+
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            if (b[r][c] === my) myDiscs++;
+            if (b[r][c] === opp) oppDiscs++;
+        }
+    }
+
+    score += (oppDiscs - myDiscs) * 5;
+
+    const corners = [[0,0],[0,7],[7,0],[7,7]];
+
+    for (const [r, c] of corners) {
+        if (b[r][c] === my) score -= 120;
+        if (b[r][c] === opp) score += 80;
+    }
+
+    if (myDiscs + oppDiscs >= 50) {
+        score += (myDiscs - oppDiscs) * 50;
+    }
 
     return score;
 }
+
+// -------------------- SEARCH --------------------
 
 function alphaBeta(b, d, a, beta, p) {
     if (d <= 0) return evaluate(b);
@@ -154,34 +220,51 @@ function alphaBeta(b, d, a, beta, p) {
     }
 }
 
-function aiMove() {
-    const m = legalMoves(board, WHITE);
+// -------------------- AI ENGINE --------------------
 
-    if (!m.length) {
+function aiMove() {
+    const moves = legalMoves(board, WHITE);
+
+    if (!moves.length) {
         setStatus("Computer has no moves — PASS");
         currentPlayer = BLACK;
         nextTurn();
         return;
     }
 
-    let best = null, bestScore = -Infinity;
+    const depth = adaptiveDepth(board);
 
-    for (const [r, c] of m) {
-        const s = alphaBeta(
-            makeMove(board, r, c, WHITE),
-            4,
-            -Infinity,
-            Infinity,
-            BLACK
-        );
+    let bestMove = null;
+    let bestScore = Infinity;
 
-        if (s > bestScore) {
-            bestScore = s;
-            best = [r, c];
+    for (const [r, c] of moves) {
+
+        const nb = makeMove(board, r, c, WHITE);
+        if (!nb) continue;
+
+        if (isTrapMove(board, r, c, WHITE)) continue;
+
+        const entropy = moveEntropy(board, r, c, WHITE);
+
+        const score = alphaBeta(nb, depth, -Infinity, Infinity, BLACK);
+
+        const finalScore = score - entropy * 2;
+
+        if (finalScore < bestScore) {
+            bestScore = finalScore;
+            bestMove = [r, c];
         }
     }
 
-    board = makeMove(board, best[0], best[1], WHITE);
+    if (!bestMove) {
+        bestMove = moves[Math.floor(Math.random() * moves.length)];
+    }
+
+    if (shouldBlunder() && moves.length > 1) {
+        bestMove = moves[Math.floor(Math.random() * moves.length)];
+    }
+
+    board = makeMove(board, bestMove[0], bestMove[1], WHITE);
     currentPlayer = BLACK;
 
     nextTurn();
@@ -191,11 +274,11 @@ function aiMove() {
 
 function nextTurn() {
     if (!canPlay(board, currentPlayer)) {
-        if (currentPlayer === BLACK) {
-            setStatus("You have no moves — PASS");
-        } else {
-            setStatus("Computer has no moves — PASS");
-        }
+        setStatus(
+            currentPlayer === BLACK
+                ? "You have no moves — PASS"
+                : "Computer has no moves — PASS"
+        );
 
         currentPlayer = -currentPlayer;
     }
@@ -235,7 +318,7 @@ function checkGameState() {
     const bm = legalMoves(board, BLACK);
     const wm = legalMoves(board, WHITE);
 
-    if (bm.length === 0 && wm.length === 0) {
+    if (!bm.length && !wm.length) {
         let black = 0, white = 0;
 
         for (let r = 0; r < 8; r++) {
@@ -258,8 +341,7 @@ function checkGameState() {
 // -------------------- RENDER --------------------
 
 function getLegalMoveSet(p) {
-    const moves = legalMoves(board, p);
-    return new Set(moves.map(m => m[0] + "," + m[1]));
+    return new Set(legalMoves(board, p).map(m => m[0] + "," + m[1]));
 }
 
 function render() {
@@ -284,8 +366,7 @@ function render() {
 
             if (board[r][c] !== EMPTY) {
                 const d = document.createElement('div');
-                d.className = 'disc ' +
-                    (board[r][c] === BLACK ? 'black' : 'white');
+                d.className = 'disc ' + (board[r][c] === BLACK ? 'black' : 'white');
 
                 cell.appendChild(d);
 
@@ -300,11 +381,6 @@ function render() {
 
     document.getElementById('blackScore').textContent = 'Black: ' + black;
     document.getElementById('whiteScore').textContent = 'White: ' + white;
-
-    if (currentPlayer === BLACK &&
-        document.getElementById('status').textContent.indexOf('wins') === -1) {
-        setStatus("Your turn (Black)");
-    }
 
     if (currentPlayer === WHITE) {
         setStatus("Computer thinking...");
